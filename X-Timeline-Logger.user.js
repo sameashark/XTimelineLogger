@@ -193,7 +193,7 @@
         .log-item:nth-child(even) { background: rgba(255,255,255,0.02); }
         .log-meta { width: 80px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; color: #8899a6; font-family: monospace; font-size: 11px; }
         .rt-mark { color: #00ba7c; font-weight: bold; line-height: 16px; }
-        .rt-mark svg { width: 12px; height: 12px; padding-right: 2px; vertical-align: text-bottom; }
+        .rt-mark svg { display: inline; width: 12px; height: 12px; padding-right: 2px; vertical-align: text-bottom; }
         .attr-icons { display: flex; gap: 4px; margin-top: 2px; font-size: 12px; align-items: center; cursor: default; }
         .attr-icons svg { width: 12px; height: 12px; fill: #8899a6; }
 
