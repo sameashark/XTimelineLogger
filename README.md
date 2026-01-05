@@ -14,6 +14,12 @@ X（旧Twitter）のタイムラインに流れてくるポストを自動的に
 - **API不要**: ブラウザの表示データを利用するため、API制限を気にせず利用可能。
 - **ローカル完結**: 取得したログはすべてブラウザの内部ストレージ（LocalStorage）にのみ保存されます。外部サーバーへの送信は一切行われません。
 
+### 一覧性に特化したUI
+![Main UI](screenshots/XTR_sc_1.png)
+
+### 設定画面
+![Settings](screenshots/XTR_sc_2.png)
+
 ## インストール方法
 1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) などのユーザースクリプト管理拡張機能をインストールします。
 2. 本リポジトリの `X-Timeline-Logger.user.js` をクリックします。
@@ -48,6 +54,7 @@ A browser utility (UserScript) that automatically captures tweets appearing on y
 
 ## 免責事項 / Disclaimer
 本ツールは私的なログ保持を補助する目的で作成されています。Xの利用規約を遵守して使用してください。
+
 This tool is for personal logging assistance. Please use it in compliance with X's Terms of Service.
 
 ## License
