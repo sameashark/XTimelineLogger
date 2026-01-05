@@ -335,8 +335,8 @@
             <div class="log-content">
                 <div class="log-user-row">
                     <img src="${escapeHTML(t.avatar)}" class="log-avatar" onerror="this.style.display='none'">
-                    <span class="log-username">${escapeHTML(truncate(t.userName, CONFIG.TRUNCATE_NAME))}</span>
-                    <span class="log-userid">@${escapeHTML(truncate(t.userId, CONFIG.TRUNCATE_ID))}</span>
+                    <a href="https://x.com/${escapeHTML(t.userId)}" target="_blank" class="log-username">${escapeHTML(truncate(t.userName, CONFIG.TRUNCATE_NAME))}</a>
+                    <a href="https://x.com/${escapeHTML(t.userId)}" target="_blank" class="log-userid">@${escapeHTML(truncate(t.userId, CONFIG.TRUNCATE_ID))}</a>
                     <a href="${escapeHTML(t.url)}" target="_blank" class="log-posttime">${escapeHTML(t.postTimeStr)}</a>
                 </div>
                 <a href="${escapeHTML(t.url)}" target="_blank" class="log-text">${escapeHTML(truncate(t.text, CONFIG.TRUNCATE_TEXT) || '(no text)')}</a>
