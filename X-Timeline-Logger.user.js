@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Timeline Logger
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.0.1
 // @updateURL    https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @downloadURL  https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @description  Never miss a tweet again. Real-time logging for your X timeline. With customizable settings.
@@ -191,6 +191,7 @@
             font-size: 12px; line-height: 1.4;
         }
         .log-item:nth-child(even) { background: rgba(255,255,255,0.02); }
+        .log-item:last-of-type { border-bottom: none; }
         .log-meta { width: 80px; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; color: #8899a6; font-family: monospace; font-size: 11px; }
         .rt-mark { color: #00ba7c; font-weight: bold; line-height: 16px; }
         .rt-mark svg { display: inline; width: 12px; height: 12px; padding-right: 2px; vertical-align: text-bottom; }
@@ -384,7 +385,7 @@
         const root = document.querySelector('main') || document;
         const articles = root.querySelectorAll('article[data-testid="tweet"]:not([data-tm-processed])');
 
-        articles.forEach(article => {
+        Array.from(articles).reverse().forEach(article => {
             article.setAttribute('data-tm-processed', 'true');
             try {
                 const timeElem = article.querySelector('time');
