@@ -28,6 +28,7 @@ X（旧Twitter）のタイムラインに流れてくるポストを自動的に
 ## 使い方
 - Xの画面左下に現れる青いアイコンをクリックするとログ画面が開きます。
 - 設定（歯車アイコン）から保持件数などの調整が可能です。
+- 詳しくはnoteにも書いています。 [https://note.com/sameashark/n/na0f625ea4876](https://note.com/sameashark/n/na0f625ea4876)
 
 ---
 
@@ -49,6 +50,7 @@ A browser utility (UserScript) that automatically captures tweets appearing on y
 ## Usage
 - Click the blue log icon at the bottom left of your X home screen to open the interface.
 - Use the settings (gear icon) to manage the maximum log count and capture intervals.
+- I have written more details on "note".  [https://note.com/sameashark/n/na0f625ea4876](https://note.com/sameashark/n/na0f625ea4876)
 
 ---
 
