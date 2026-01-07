@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Timeline Logger
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      2.0
 // @updateURL    https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @downloadURL  https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @description  Never miss a tweet again. Real-time logging for your X timeline. With customizable settings.
@@ -12,7 +12,7 @@
 // @license      MIT
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // --- Default Configuration & Storage ---
@@ -22,7 +22,10 @@
         FETCH_MODE: 'timeline',
         TRUNCATE_TEXT: 140,
         TRUNCATE_NAME: 20,
-        TRUNCATE_ID: 15
+        TRUNCATE_ID: 15,
+        IMAGE_ONLY_MODE: false, // Now acts as a Fetch Filter
+        TILE_SIZE: 4,
+        VIEW_MODE: 'list' // 'list' or 'tile'
     };
 
     const CONFIG_KEY = 'x_timeline_logger_config';
@@ -58,7 +61,13 @@
         trigger: null,
         sortBtn: null,
         btnSave: null,
-        inputs: {}
+        inputs: {},
+        // New Controls
+        btnDisplay: null,
+        selTileSizeNew: null,
+        checkRepostNew: null,
+        checkMediaNew: null,
+        radViewModes: []
     };
 
     // --- Utils ---
@@ -107,6 +116,7 @@
             cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4); transition: opacity 0.2s;
         }
         #tm-log-trigger:hover { opacity: 0.8; }
+        #tm-log-trigger.imgonlymode { background: #24bf74; }
 
         #tm-log-modal {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -131,6 +141,28 @@
         .header-title { font-size: 16px; font-weight: bold; margin: 0; transition: color 0.2s; }
         .header-count { font-size: 12px; color: #8899a6; margin-left: 8px; font-weight: normal; }
 
+        /* Icon Groups */
+        .header-controls { display: flex; align-items: center; gap: 12px; }
+        .tm-icon-group { display: flex; align-items: center; background: #253341; border-radius: 4px; border: 1px solid #38444d; overflow: hidden; }
+        .tm-toggle-btn {
+            background: transparent; border: none; color: #8899a6; padding: 4px 8px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; height: 26px; transition: 0.2s;
+        }
+        .tm-toggle-btn:hover { background: rgba(255,255,255,0.05); color: #fff; }
+        .tm-toggle-btn.active { background: #1d9bf0; color: #fff; }
+        .tm-toggle-btn.active:hover { opacity: 0.8; }
+        .tl-view .tm-toggle-btn.active:hover { opacity: 1; }
+        .tm-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .tm-toggle-btn:disabled:hover { opacity: 0.5; }
+
+        /* Select inside group */
+        .tm-group-select {
+            background: #15202b; color: #fff; border: none; font-size: 11px; height: 26px;
+            padding: 0 4px; border-left: 1px solid #38444d; outline: none; cursor: pointer;
+        }
+        .tm-group-select:focus { background: #000; }
+        .tm-group-select:disabled { opacity: 0.5; cursor: not-allowed; }
+
         /* Settings Panel */
         @keyframes accordion { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
         #tm-settings-panel {
@@ -150,6 +182,9 @@
         }
         .tm-input:focus, .tm-select:focus { outline: none; border-color: #1d9bf0; }
 
+        .imgonlymode-panel { margin-top: 15px; padding-top: 10px; border-top: 1px solid #38444d; display:flex; align-items:center; justify-content:space-between; }
+        .imgonlymode-toggle { font-weight: bold; color: #24bf74; }
+
         .settings-actions { margin-top: 15px; padding-top: 10px; border-top: 1px solid #38444d; display: flex; justify-content: space-between; align-items: center; }
 
         /* Buttons */
@@ -164,7 +199,7 @@
         .tm-btn-red { background: #f4212e; }
         .tm-btn-outline { background: transparent; border: 1px solid #38444d; }
         .tm-icon-btn { background: none; border: none; color: #8899a6; cursor: pointer; padding: 4px; border-radius: 4px; transition: 0.2s; display: flex; }
-        .tm-icon-btn:hover { background: rgba(29, 155, 240, 0.1); color: #1d9bf0; }
+        .tm-icon-btn:hover { opacity: 0.8; }
         .tm-icon-btn.active { color: #1d9bf0; }
 
         /* Body & Logs */
@@ -215,7 +250,96 @@
         .log-thumb-link:hover { z-index: 101; position: relative; opacity: 1; }
         .log-thumb-link:hover .log-thumb { transform: scale(4); position: absolute; top: 0; left: 0; border: 1px solid #fff; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.8); }
         .close-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; line-height: 1; padding: 0 5px; }
+        .close-btn:hover { opacity: 0.8; }
+
+        /* Image Only & Tile Styles */
+        .tgl-wrapper { display: flex; align-items: center; cursor: pointer; user-select: none; }
+        .tgl-input { display: none; }
+        .imgonlymode-label { margin-right: 8px; font-weight: bold; color: #fff; font-size: 13px; }
+        .tgl-btn-style {
+            margin-top: 2px; width: 36px; height: 20px; background: #38444d; border-radius: 9999px; position: relative; transition: background 0.2s;
+        }
+        .tgl-btn-style { cursor: pointer; }
+        .tgl-btn-style::after {
+            content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform 0.2s;
+        }
+        .tgl-input:checked + .tgl-btn-style { background: #24bf74; }
+        .tgl-input:checked + .tgl-btn-style::after { transform: translateX(16px); }
+        .tgl-label { margin-left: 8px; font-weight: bold; color: #fff; font-size: 13px; }
+
+        #tm-log-body.tile-view {
+            display: grid;
+            grid-template-columns: repeat(var(--tile-cols, 4), 1fr);
+            gap: 2px;
+            padding: 2px;
+            align-content: start;
+        }
+        .tile-item {
+            width: 100%; padding-bottom: 100%; height: 0; position: relative; overflow: hidden; cursor: pointer; background: #000;
+        }
+        .tile-img {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; display: block;
+        }
+        .play-icon {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 32px; height: 32px; background: rgba(0,0,0,0.5); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; pointer-events: none;
+        }
+        .play-icon svg { width: 16px; height: 16px; fill: white; margin-left: 2px; }
+        .tile-item:hover .tile-img { transform: scale(1.05); }
+
+        /* Custom Image Viewer Modal */
+        #tm-image-viewer {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,1); z-index: 10002; display: none;
+            flex-direction: column;
+        }
+        .tv-main { flex: 1; display: flex; position: relative; overflow: hidden; }
+        .tv-img-container { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; }
+        .tv-img-link { display: contents; text-decoration: none; }
+        .tv-img { display: block; max-width: 100%; max-height: 100%; object-fit: scale-down; }
+        .tv-play-icon {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 64px; height: 64px; background: rgba(0,0,0,0.5); border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; pointer-events: none;
+            z-index: 10;
+        }
+        .tv-play-icon svg { width: 32px; height: 32px; fill: white; margin-left: 4px; }
+        .tv-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1); border: none; color: #fff;
+            width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: background 0.2s; z-index: 10;
+            box-shadow: 0 0 4px rgba(14, 14, 14, 0.2);
+        }
+        .tv-nav-btn svg { filter: drop-shadow(0 0 2px #000); opacity: 0.4; }
+        .tv-nav-btn:hover { background: rgba(255, 255, 255, 0.5); }
+        .tv-nav-prev { left: 20px; }
+        .tv-nav-next { right: 20px; }
+
+        .tv-meta-panel {
+            background: #000; border-top: 1px solid #333; padding: 12px;
+            display: flex; gap: 12px; color: #fff; font-size: 11px; flex-shrink: 0;
+        }
+        .tv-meta-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+        .tv-row-user { display: flex; align-items: center; gap: 8px; }
+        .tv-avatar { width: 20px; height: 20px; border-radius: 50%; }
+        .tv-username { font-weight: bold; color: #e7e9ea; text-decoration: none; }
+        .tv-userid { color: #71767b; text-decoration: none; }
+        .tv-time { color: #71767b; margin-left: auto; text-decoration: none; }
+        .tv-text {
+            color: #e7e9ea; line-height: 1.4; word-break: break-word; white-space: pre-wrap;
+            max-height: 60px; overflow-y: auto; text-decoration: none; display: block;
+        }
+        .tv-text:hover { text-decoration: underline; }
+        .tv-close {
+            position: absolute; top: 10px; right: 20px;
+            background: rgba(0,0,0,0.5); border-radius: 50%; padding: 8px;
+            cursor: pointer; color: #fff; border: none; display: flex; z-index: 20;
+        }
+        .tv-close:hover { opacity: 0.8; }
     `;
+
     document.head.appendChild(style);
 
     const trigger = document.createElement('div');
@@ -232,25 +356,45 @@
                     <h3 class="header-title">Timeline History</h3>
                     <span id="log-count" class="header-count">(0/0件)</span>
                 </div>
-                <div style="display:flex; align-items:center;">
-                    <label class="tm-btn tm-btn-outline" style="margin-right:8px; cursor:pointer; user-select:none;">
-                        <input type="checkbox" id="check-repost" checked style="cursor:pointer;"> Repost
-                    </label>
-                    <label class="tm-btn tm-btn-outline" style="margin-right:8px; cursor:pointer; user-select:none;">
-                        <input type="checkbox" id="check-media" checked style="cursor:pointer;"> 画像
-                    </label>
+
+                <div class="header-controls">
+                    <!-- Filter Group -->
+                    <div class="tm-icon-group">
+                        <button id="btn-toggle-repost" class="tm-toggle-btn active" title="Repost表示切り替え">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                        </button>
+                        <button id="btn-toggle-media" class="tm-toggle-btn active" title="メディア表示切り替え">
+                            <span style="font-size:16px; line-height:1;">🖼️</span>
+                        </button>
+                    </div>
+                    <!-- View Mode Group -->
+                    <div class="tm-icon-group tl-view">
+                        <button id="btn-view-list" class="tm-toggle-btn active" title="リスト表示">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                        </button>
+                        <button id="btn-view-tile" class="tm-toggle-btn" title="タイル表示">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                        </button>
+                        <select id="sel-tile-size-new" class="tm-group-select" title="タイルサイズ">
+                            <option value="4">4</option>
+                            <option value="8">8</option>
+                            <option value="12">12</option>
+                        </select>
+                    </div>
+
+                    <!-- Sort -->
                     <div class="sort-wrapper">
-                        <button id="main-sort-btn" class="tm-btn">並べ替え: 取得時間 ▼</button>
+                        <button id="main-sort-btn" class="tm-btn">並べ替え ▼</button>
                         <div class="sort-dropdown">
                             <div class="sort-item" data-key="fetchTime">取得時間順</div>
                             <div class="sort-item" data-key="postTime">投稿時間順</div>
                         </div>
                     </div>
 
-                    <button id="btn-settings" class="tm-icon-btn" title="設定" style="margin-right:5px; margin-left:5px;">
+                    <button id="btn-settings" class="tm-icon-btn" title="設定">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                     </button>
-                    <button id="btn-close" class="close-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                    <button id="btn-close" class="close-btn" title="閉じる"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
                 </div>
             </div>
 
@@ -278,6 +422,15 @@
                         </select>
                         <span class="setting-desc" id="desc-fetch-mode">タイムラインのみ取得</span>
                     </div>
+
+                    <div class="setting-group">
+                        <label class="setting-label">画像のみ取得
+                        <input type="checkbox" id="chk-img-only" class="tgl-input">
+                        <div class="tgl-btn-style"></div>
+                        </label>
+                        <span class="setting-desc" id="desc-img-only">画像を含むポストのみを取得します。</span>
+                    </div>
+
                 </div>
                 <div class="settings-actions">
                     <button id="btn-clear" class="tm-btn tm-btn-red">
@@ -291,6 +444,36 @@
     `;
     document.body.appendChild(modal);
 
+    const imageViewer = document.createElement('div');
+    imageViewer.id = 'tm-image-viewer';
+    imageViewer.innerHTML = `
+        <button class="tv-close"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+        <button class="tv-nav-btn tv-nav-prev"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+        <div class="tv-main">
+            <div class="tv-img-container">
+                <a href="#" class="tv-img-link" target="_blank" rel="noopener">
+                    <img src="" class="tv-img">
+                </a>
+                <div class="tv-play-icon" style="display:none">
+                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+                </div>
+            </div>
+        </div>
+        <button class="tv-nav-btn tv-nav-next"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+        <div class="tv-meta-panel">
+            <img src="" class="tv-avatar">
+            <div class="tv-meta-content">
+                <div class="tv-row-user">
+                    <a href="#" target="_blank" class="tv-username"></a>
+                    <a href="#" target="_blank" class="tv-userid"></a>
+                    <a href="#" target="_blank" class="tv-time"></a>
+                </div>
+                <a href="#" target="_blank" class="tv-text"></a>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(imageViewer);
+
     // --- Element Binding ---
     UI.modal = modal;
     UI.container = document.getElementById('tm-log-container');
@@ -303,11 +486,21 @@
     UI.btnSettings = document.getElementById('btn-settings');
     UI.btnSave = document.getElementById('btn-save-settings');
 
+    // New Bindings
+    UI.btnViewList = document.getElementById('btn-view-list');
+    UI.btnViewTile = document.getElementById('btn-view-tile');
+    UI.selTileSize = document.getElementById('sel-tile-size-new');
+    UI.btnToggleRepost = document.getElementById('btn-toggle-repost');
+    UI.btnToggleMedia = document.getElementById('btn-toggle-media');
+
+    UI.imageViewer = imageViewer;
+
     // Inputs
     UI.inputs.maxCount = document.getElementById('inp-max-count');
     UI.inputs.debounce = document.getElementById('inp-debounce');
     UI.inputs.truncate = document.getElementById('inp-truncate');
     UI.inputs.fetchMode = document.getElementById('sel-fetch-mode');
+    UI.inputs.imgOnlyMode = document.getElementById('chk-img-only');
 
     // --- Logic Implementation ---
     const createLogItem = (t, animate = false) => {
@@ -341,27 +534,177 @@
                     <a href="${escapeHTML(t.url)}" target="_blank" class="log-posttime">${escapeHTML(t.postTimeStr)}</a>
                 </div>
                 <a href="${escapeHTML(t.url)}" target="_blank" class="log-text">${escapeHTML(truncate(t.text, CONFIG.TRUNCATE_TEXT) || '(no text)')}</a>
-                ${t.media?.length ? `<div class="log-media-row">${t.media.map(u => `<div class="log-thumb-wrapper"><a href="${escapeHTML(t.url)}" target="_blank" class="log-thumb-link"><img src="${escapeHTML(optimizeImageUrl(u))}" class="log-thumb" loading="lazy"></a></div>`).join('')}</div>` : ''}
+                ${t.media?.length ? `<div class="log-media-row">${t.media.map(m => {
+            const url = (typeof m === 'string') ? m : m.url;
+            return `<div class="log-thumb-wrapper"><a href="${escapeHTML(t.url)}" target="_blank" class="log-thumb-link"><img src="${escapeHTML(optimizeImageUrl(url))}" class="log-thumb" loading="lazy"></a></div>`;
+        }).join('')}</div>` : ''}
             </div>`;
         return div;
+    };
+
+    const createTileItem = (t, imgIndex) => {
+        const div = document.createElement('div');
+        div.className = 'tile-item';
+        div.title = `${t.userName} (@${t.userId}) - ${t.postTimeStr}`;
+
+        const m = t.media[imgIndex];
+        const url = (typeof m === 'string') ? m : m.url;
+        const isVideo = (typeof m === 'object' && m.type === 'video');
+
+        let html = `<img src="${optimizeImageUrl(url)}" class="tile-img" loading="lazy">`;
+        if (isVideo) {
+            html += `
+            <div class="play-icon">
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+            </div>`;
+        }
+        div.innerHTML = html;
+        div.onclick = () => openImageModal(t, imgIndex);
+        return div;
+    };
+
+    let flatImageList = [];
+    let currentImageIndex = 0;
+
+    const openImageModal = (targetTweet, targetImgIndex) => {
+        const sorted = [...tweetLog].sort((a, b) => {
+            const vA = a[currentSortKey] || 0; const vB = b[currentSortKey] || 0;
+            return currentSortOrder === 'desc' ? (vB - vA) : (vA - vB);
+        });
+
+        flatImageList = [];
+        let targetListIndex = 0;
+
+        sorted.forEach(t => {
+            if (t.media && t.media.length) {
+                t.media.forEach((m, idx) => {
+                    if (t.id === targetTweet.id && idx === targetImgIndex) {
+                        targetListIndex = flatImageList.length;
+                    }
+                    flatImageList.push({ tweet: t, mediaItem: m, imgIndex: idx });
+                });
+            }
+        });
+
+        if (flatImageList.length === 0) return;
+        currentImageIndex = targetListIndex;
+        updateImageViewer();
+        UI.imageViewer.style.display = 'flex';
+    };
+
+    const updateImageViewer = () => {
+        const item = flatImageList[currentImageIndex];
+        if (!item) return;
+        const t = item.tweet;
+        const m = item.mediaItem;
+        const url = (typeof m === 'string') ? m : m.url;
+        const isVideo = (typeof m === 'object' && m.type === 'video');
+
+        const largeUrl = url.includes('name=') ? url.replace(/name=[a-zA-Z0-9_]+/, 'name=large') : `${url}?name=large`;
+
+        const viewer = UI.imageViewer;
+        const imgLink = viewer.querySelector('.tv-img-link');
+        imgLink.href = t.url;
+        viewer.querySelector('.tv-img').src = largeUrl;
+
+        const playIcon = viewer.querySelector('.tv-play-icon');
+        if (playIcon) playIcon.style.display = isVideo ? 'flex' : 'none';
+
+        viewer.querySelector('.tv-avatar').src = t.avatar;
+        const uLink = viewer.querySelector('.tv-username');
+        uLink.textContent = t.userName; uLink.href = `https://x.com/${t.userId}`;
+        const iLink = viewer.querySelector('.tv-userid');
+        iLink.textContent = `@${t.userId}`; iLink.href = `https://x.com/${t.userId}`;
+        const timeLink = viewer.querySelector('.tv-time');
+        timeLink.textContent = t.postTimeStr; timeLink.href = t.url;
+        const textLink = viewer.querySelector('.tv-text');
+        textLink.textContent = t.text; textLink.href = t.url;
+    };
+
+    const navImage = (dir) => {
+        if (!flatImageList.length) return;
+        currentImageIndex += dir;
+        if (currentImageIndex < 0) currentImageIndex = flatImageList.length - 1;
+        if (currentImageIndex >= flatImageList.length) currentImageIndex = 0;
+        updateImageViewer();
     };
 
     const updateCountLabel = () => { UI.count.innerText = `(${tweetLog.length}/${CONFIG.MAX_LOG_COUNT}件)`; };
 
     const renderFullLog = () => {
+        // Apply View Mode
+        const isTile = CONFIG.VIEW_MODE === 'tile';
+
+        if (isTile) {
+            UI.body.classList.add('tile-view');
+            UI.body.style.setProperty('--tile-cols', CONFIG.TILE_SIZE);
+            isShowMedia = true; // Force ON
+            // Trigger Media Button State for Tile Mode (Forced)
+            if (UI.btnToggleMedia) {
+                UI.btnToggleMedia.disabled = true;
+                UI.btnToggleMedia.classList.add('active');
+            }
+            if (UI.selTileSize) UI.selTileSize.disabled = false;
+        } else {
+            UI.body.classList.remove('tile-view');
+            UI.body.style.removeProperty('--tile-cols');
+            if (UI.btnToggleMedia) {
+                UI.btnToggleMedia.disabled = false;
+                // Reflect manual choice
+                isShowMedia ? UI.btnToggleMedia.classList.add('active') : UI.btnToggleMedia.classList.remove('active');
+            }
+            if (UI.selTileSize) UI.selTileSize.disabled = true;
+        }
+
+        // Apply View Mode Classes to Body
         isShowMedia ? UI.body.classList.remove('hide-media') : UI.body.classList.add('hide-media');
         isShowRepost ? UI.body.classList.remove('hide-repost') : UI.body.classList.add('hide-repost');
+
+        // Update Button Active States
+        if (isTile) {
+            UI.btnViewList.classList.remove('active');
+            UI.btnViewTile.classList.add('active');
+        } else {
+            UI.btnViewList.classList.add('active');
+            UI.btnViewTile.classList.remove('active');
+        }
+
+        isShowRepost ? UI.btnToggleRepost.classList.add('active') : UI.btnToggleRepost.classList.remove('active');
+
+        if (CONFIG.IMAGE_ONLY_MODE) {
+            if (UI.trigger) UI.trigger.classList.add('imgonlymode');
+        } else {
+            if (UI.trigger) UI.trigger.classList.remove('imgonlymode');
+        }
 
         const sorted = [...tweetLog].sort((a, b) => {
             const vA = a[currentSortKey] || 0; const vB = b[currentSortKey] || 0;
             return currentSortOrder === 'desc' ? (vB - vA) : (vA - vB);
         });
+
         const fragment = document.createDocumentFragment();
-        sorted.forEach(t => fragment.appendChild(createLogItem(t)));
+
+        if (isTile) {
+            sorted.forEach(t => {
+                if (!isShowRepost && t.isRT) return;
+                // Tile view requires media
+                if (t.media && t.media.length) {
+                    t.media.forEach((_, idx) => {
+                        fragment.appendChild(createTileItem(t, idx));
+                    });
+                }
+            });
+        } else {
+            sorted.forEach(t => fragment.appendChild(createLogItem(t)));
+        }
+
         UI.body.innerHTML = '';
         UI.body.appendChild(fragment);
         updateCountLabel();
         UI.sortBtn.innerText = `並べ替え: ${currentSortKey === 'fetchTime' ? '取得時間' : '投稿時間'} ${currentSortOrder === 'desc' ? '▼' : '▲'}`;
+
+        // Sync Select Value
+        if (UI.selTileSize) UI.selTileSize.value = CONFIG.TILE_SIZE;
     };
 
     const saveTweet = (data) => {
@@ -369,19 +712,16 @@
         if (processedTweetIds.has(key)) return false;
         processedTweetIds.add(key);
         tweetLog.unshift(data);
-
         if (tweetLog.length > CONFIG.MAX_LOG_COUNT) {
             const rm = tweetLog.pop();
             if (rm) processedTweetIds.delete(rm.id || rm.url);
         }
-
         localStorage.setItem(LOG_KEY, JSON.stringify(tweetLog));
         return true;
     };
 
     const processTimeline = () => {
         if (CONFIG.FETCH_MODE === 'timeline' && window.location.pathname !== '/home') return;
-
         const root = document.querySelector('main') || document;
         const articles = root.querySelectorAll('article[data-testid="tweet"]:not([data-tm-processed])');
 
@@ -394,13 +734,24 @@
                 if (!userContainer || !linkElem) return;
                 const url = linkElem.href.split('?')[0];
                 const text = getTextContentWithAlt(article.querySelector('[data-testid="tweetText"]')).replace(/\n/g, ' ');
-                const media = Array.from(article.querySelectorAll('[data-testid="tweetPhoto"] img')).map(i => i.src);
+
+                const media = [];
+                const photoContainers = article.querySelectorAll('[data-testid="tweetPhoto"]');
+                photoContainers.forEach(container => {
+                    const isVideo = container.querySelector('[data-testid="videoPlayer"]') !== null;
+                    let img = container.querySelector('img');
+                    let src = img ? img.src : null;
+                    if (!src && isVideo) {
+                        const video = container.querySelector('video');
+                        if (video) src = video.poster;
+                    }
+                    if (src) media.push({ url: src, type: isVideo ? 'video' : 'photo' });
+                });
+
                 const now = new Date();
                 const postDate = timeElem ? new Date(timeElem.getAttribute('datetime')) : now;
-
                 const hasCard = !!article.querySelector('[data-testid="card.wrapper"]');
                 const hasExternalLink = (text && (text.includes('http://') || text.includes('https://'))) || hasCard;
-
                 const isQuote = !!article.querySelector('div[role="link"][tabindex="0"]');
 
                 const data = {
@@ -410,19 +761,17 @@
                     userId: userContainer.textContent.split('@')[1]?.split('·')[0].trim() || 'unknown',
                     text, avatar: article.querySelector('[data-testid="Tweet-User-Avatar"] img')?.src || '',
                     media, isRT: !!article.querySelector('[data-testid="socialContext"]'),
-                    isQuote,
-                    hasExternalLink
+                    isQuote, hasExternalLink
                 };
+
+                // Filter: Image Only Mode (Fetch filter)
+                if (CONFIG.IMAGE_ONLY_MODE && (!data.media || data.media.length === 0)) return;
+
                 if (saveTweet(data) && UI.modal.style.display === 'flex') {
-                    if (currentSortKey === 'fetchTime' && currentSortOrder === 'desc') {
-                        UI.body.prepend(createLogItem(data, true));
-                        if (UI.body.children.length > CONFIG.MAX_LOG_COUNT) UI.body.lastElementChild.remove();
-                        updateCountLabel();
-                    } else {
-                        renderFullLog();
-                    }
+                    // Optimized update logic handled by renderFullLog or selective prepend
+                    renderFullLog();
                 }
-            } catch(e) { console.error('Capture error', e); }
+            } catch (e) { console.error('Capture error', e); }
         });
     };
 
@@ -437,7 +786,8 @@
             parseInt(UI.inputs.maxCount.value) === CONFIG.MAX_LOG_COUNT &&
             parseInt(UI.inputs.debounce.value) === CONFIG.DEBOUNCE_MS &&
             parseInt(UI.inputs.truncate.value) === CONFIG.TRUNCATE_TEXT &&
-            UI.inputs.fetchMode.value === CONFIG.FETCH_MODE
+            UI.inputs.fetchMode.value === CONFIG.FETCH_MODE &&
+            UI.inputs.imgOnlyMode.checked === CONFIG.IMAGE_ONLY_MODE
         );
     };
 
@@ -446,6 +796,7 @@
         CONFIG.DEBOUNCE_MS = Math.max(100, parseInt(UI.inputs.debounce.value));
         CONFIG.TRUNCATE_TEXT = Math.max(0, parseInt(UI.inputs.truncate.value));
         CONFIG.FETCH_MODE = UI.inputs.fetchMode.value;
+        CONFIG.IMAGE_ONLY_MODE = UI.inputs.imgOnlyMode.checked;
         localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG));
 
         if (tweetLog.length > CONFIG.MAX_LOG_COUNT) {
@@ -465,6 +816,7 @@
             UI.inputs.debounce.value = CONFIG.DEBOUNCE_MS;
             UI.inputs.truncate.value = CONFIG.TRUNCATE_TEXT;
             UI.inputs.fetchMode.value = CONFIG.FETCH_MODE;
+            UI.inputs.imgOnlyMode.checked = CONFIG.IMAGE_ONLY_MODE;
             document.getElementById('desc-fetch-mode').innerText = CONFIG.FETCH_MODE === 'timeline' ? 'タイムラインのみ取得' : '全て取得';
             UI.settingsPanel.style.display = 'block';
             UI.btnSettings.classList.add('active');
@@ -475,16 +827,43 @@
         }
     };
 
+    const closeModal = () => {
+        UI.modal.style.display = 'none';
+        UI.settingsPanel.style.display = 'none';
+        UI.btnSettings.classList.remove('active');
+    };
 
     UI.trigger.onclick = () => { renderFullLog(); UI.modal.style.display = 'flex'; };
-    document.getElementById('btn-close').onclick = () => { UI.modal.style.display = 'none'; };
-
-    UI.modal.onclick = (e) => { if (e.target === UI.modal) UI.modal.style.display = 'none'; };
-
+    document.getElementById('btn-close').onclick = closeModal;
+    UI.modal.onclick = (e) => { if (e.target === UI.modal) closeModal(); };
     UI.headerTitle.onclick = () => { UI.body.scrollTop = 0; };
 
-    document.getElementById('check-repost').onchange = (e) => { isShowRepost = e.target.checked; renderFullLog(); };
-    document.getElementById('check-media').onchange = (e) => { isShowMedia = e.target.checked; renderFullLog(); };
+    UI.btnViewList.onclick = () => {
+        CONFIG.VIEW_MODE = 'list';
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG));
+        renderFullLog();
+    };
+    UI.btnViewTile.onclick = () => {
+        CONFIG.VIEW_MODE = 'tile';
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG));
+        renderFullLog();
+    };
+
+    UI.selTileSize.onchange = (e) => {
+        CONFIG.TILE_SIZE = parseInt(e.target.value);
+        localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG));
+        renderFullLog();
+    };
+
+    UI.btnToggleRepost.onclick = () => {
+        isShowRepost = !isShowRepost;
+        renderFullLog();
+    };
+
+    UI.btnToggleMedia.onclick = () => {
+        isShowMedia = !isShowMedia;
+        renderFullLog();
+    };
 
     UI.sortBtn.onclick = (e) => { e.stopPropagation(); currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc'; renderFullLog(); };
     document.querySelectorAll('.sort-item').forEach(i => {
@@ -495,21 +874,32 @@
             renderFullLog();
         };
     });
+
     document.getElementById('btn-clear').onclick = () => {
-        if(confirm('ログを全消去しますか？')) {
-            tweetLog=[];
+        if (confirm('ログを全消去しますか？')) {
+            tweetLog = [];
             processedTweetIds.clear();
             localStorage.removeItem(LOG_KEY);
             renderFullLog();
         }
     };
-    [UI.inputs.maxCount, UI.inputs.debounce, UI.inputs.truncate].forEach(el => {
+
+    [UI.inputs.maxCount, UI.inputs.debounce, UI.inputs.truncate, UI.inputs.imgOnlyMode].forEach(el => {
         el.oninput = checkDirty;
+        el.onchange = checkDirty;
     });
+
     UI.inputs.fetchMode.onchange = () => {
         document.getElementById('desc-fetch-mode').innerText = UI.inputs.fetchMode.value === 'timeline' ? 'タイムラインのみ取得' : '全て取得';
         checkDirty();
     };
 
+    // Image Viewer Events
+    UI.imageViewer.onclick = (e) => { if (e.target === UI.imageViewer || e.target.classList.contains('tv-img-container')) UI.imageViewer.style.display = 'none'; };
+    UI.imageViewer.querySelector('.tv-close').onclick = () => UI.imageViewer.style.display = 'none';
+    UI.imageViewer.querySelector('.tv-nav-prev').onclick = (e) => { e.stopPropagation(); navImage(-1); };
+    UI.imageViewer.querySelector('.tv-nav-next').onclick = (e) => { e.stopPropagation(); navImage(1); };
+
+    renderFullLog(); // Initial render
     observer.observe(document.body, { childList: true, subtree: true });
 })();
