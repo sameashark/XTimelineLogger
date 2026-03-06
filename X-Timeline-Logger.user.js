@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Timeline Logger
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @updateURL    https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @downloadURL  https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @description  Never miss a tweet again. Real-time logging for your X timeline. With customizable settings.
@@ -25,7 +25,8 @@
         TRUNCATE_ID: 15,
         IMAGE_ONLY_MODE: false, // Now acts as a Fetch Filter
         TILE_SIZE: 4,
-        VIEW_MODE: 'list' // 'list' or 'tile'
+        VIEW_MODE: 'list', // 'list' or 'tile'
+        EXACT_MATCH_FILTER: false // Hide search results that don't contain exact-match query terms in post body
     };
 
     const CONFIG_KEY = 'x_timeline_logger_config';
@@ -49,6 +50,71 @@
     let isShowMedia = true;
     let isShowRepost = true;
     let debounceTimer = null;
+
+    // --- Exact Match Filter State ---
+    // Extracts quoted terms from X search query URL (supports """term""" and "term")
+    const getExactMatchTerms = () => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const q = params.get('q') || '';
+            const terms = [];
+            // Match """...""" first (triple-quote), then "..."
+            const tripleRe = /"""([^"]+)"""/g;
+            let m;
+            let tripleFound = false;
+            while ((m = tripleRe.exec(q)) !== null) {
+                terms.push(m[1]);
+                tripleFound = true;
+            }
+            if (!tripleFound) {
+                const singleRe = /"([^"]+)"/g;
+                while ((m = singleRe.exec(q)) !== null) {
+                    terms.push(m[1]);
+                }
+            }
+            return terms;
+        } catch (e) { return []; }
+    };
+
+    // Returns true if article should be hidden by exact match filter.
+    // Logic:
+    //   - term found in post body (tweetText)           → SHOW  ✅
+    //   - term found in both post body AND User-Name     → SHOW  ✅
+    //   - term found ONLY in User-Name (not in body)     → HIDE  🚫
+    //   - term not found anywhere                        → HIDE  🚫
+    const shouldHideByExactMatch = (article) => {
+        if (!CONFIG.EXACT_MATCH_FILTER) return false;
+        if (!window.location.pathname.startsWith('/search')) return false;
+        const terms = getExactMatchTerms();
+        if (!terms.length) return false;
+
+        // Get post body text only (first tweetText in the article = the outer post)
+        const textEl = article.querySelector('[data-testid="tweetText"]');
+        const postText = textEl ? getTextContentWithAlt(textEl) : '';
+
+        // Get User-Name text (display name only, not handle)
+        const nameEl = article.querySelector('[data-testid="User-Name"]');
+        const nameText = nameEl ? nameEl.textContent : '';
+
+        // A term passes if it is found in post body.
+        // If not in post body but in name only → hide.
+        return !terms.every(term => postText.includes(term));
+    };
+
+    // Apply/re-apply exact match filter to ALL articles currently in DOM (processed or not).
+    // Called both from MutationObserver scan and on URL change.
+    const applyExactMatchFilter = () => {
+        if (!CONFIG.EXACT_MATCH_FILTER) return;
+        if (!window.location.pathname.startsWith('/search')) return;
+        const articles = document.querySelectorAll('article[data-testid="tweet"]');
+        articles.forEach(article => {
+            if (shouldHideByExactMatch(article)) {
+                article.setAttribute('data-xtl-exact-hidden', 'true');
+            } else {
+                article.removeAttribute('data-xtl-exact-hidden');
+            }
+        });
+    };
 
     // --- DOM Cache ---
     const UI = {
@@ -338,6 +404,9 @@
             cursor: pointer; color: #fff; border: none; display: flex; z-index: 20;
         }
         .tv-close:hover { opacity: 0.8; }
+
+        /* Exact Match Filter: hide non-matching articles in X search results */
+        article[data-xtl-exact-hidden="true"] { display: none !important; }
     `;
 
     document.head.appendChild(style);
@@ -418,6 +487,7 @@
                         <label class="setting-label">取得対象</label>
                         <select id="sel-fetch-mode" class="tm-select">
                             <option value="timeline">Timeline Only</option>
+                            <option value="timeline_search">Timeline &amp; Search</option>
                             <option value="all">All Posts</option>
                         </select>
                         <span class="setting-desc" id="desc-fetch-mode">タイムラインのみ取得</span>
@@ -431,6 +501,15 @@
                         <span class="setting-desc" id="desc-img-only">画像を含むポストのみを取得します。</span>
                     </div>
 
+                </div>
+                <div class="setting-row" style="margin-top:4px; padding-top:10px; border-top:1px solid #38444d;">
+                    <div class="setting-group">
+                        <label class="setting-label">検索の完全一致外ワードを除外する
+                        <input type="checkbox" id="chk-exact-match" class="tgl-input">
+                        <div class="tgl-btn-style"></div>
+                        </label>
+                        <span class="setting-desc" id="desc-exact-match">/search? で"""キーワード"""または"キーワード"検索時、<br>本文に含まれないpostを非表示にします。</span>
+                    </div>
                 </div>
                 <div class="settings-actions">
                     <button id="btn-clear" class="tm-btn tm-btn-red">
@@ -501,6 +580,7 @@
     UI.inputs.truncate = document.getElementById('inp-truncate');
     UI.inputs.fetchMode = document.getElementById('sel-fetch-mode');
     UI.inputs.imgOnlyMode = document.getElementById('chk-img-only');
+    UI.inputs.exactMatch = document.getElementById('chk-exact-match');
 
     // --- Logic Implementation ---
     const createLogItem = (t, animate = false) => {
@@ -721,13 +801,29 @@
     };
 
     const processTimeline = () => {
-        if (CONFIG.FETCH_MODE === 'timeline' && window.location.pathname !== '/home') return;
+        const path = window.location.pathname;
+        const isHome = path === '/home';
+        const isSearch = path.startsWith('/search');
+
+        // timeline          : /home only
+        // timeline_search   : /home OR /search
+        // all               : everywhere (includes /search)
+        if (CONFIG.FETCH_MODE === 'timeline' && !isHome) return;
+        if (CONFIG.FETCH_MODE === 'timeline_search' && !isHome && !isSearch) return;
+        // 'all' passes through unconditionally
+
+        // Re-apply exact match DOM filter on each scan
+        if (CONFIG.EXACT_MATCH_FILTER) applyExactMatchFilter();
+
         const root = document.querySelector('main') || document;
         const articles = root.querySelectorAll('article[data-testid="tweet"]:not([data-tm-processed])');
 
         Array.from(articles).reverse().forEach(article => {
             article.setAttribute('data-tm-processed', 'true');
             try {
+                // Skip if hidden by exact match filter
+                if (CONFIG.EXACT_MATCH_FILTER && article.getAttribute('data-xtl-exact-hidden') === 'true') return;
+
                 const timeElem = article.querySelector('time');
                 const linkElem = article.querySelector('a[href*="/status/"]');
                 const userContainer = article.querySelector('[data-testid="User-Name"]');
@@ -776,6 +872,8 @@
     };
 
     const observer = new MutationObserver(() => {
+        // Apply exact match filter immediately (no debounce) so new articles are hidden instantly
+        if (CONFIG.EXACT_MATCH_FILTER) applyExactMatchFilter();
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => requestAnimationFrame(processTimeline), CONFIG.DEBOUNCE_MS);
     });
@@ -787,7 +885,8 @@
             parseInt(UI.inputs.debounce.value) === CONFIG.DEBOUNCE_MS &&
             parseInt(UI.inputs.truncate.value) === CONFIG.TRUNCATE_TEXT &&
             UI.inputs.fetchMode.value === CONFIG.FETCH_MODE &&
-            UI.inputs.imgOnlyMode.checked === CONFIG.IMAGE_ONLY_MODE
+            UI.inputs.imgOnlyMode.checked === CONFIG.IMAGE_ONLY_MODE &&
+            UI.inputs.exactMatch.checked === CONFIG.EXACT_MATCH_FILTER
         );
     };
 
@@ -797,6 +896,7 @@
         CONFIG.TRUNCATE_TEXT = Math.max(0, parseInt(UI.inputs.truncate.value));
         CONFIG.FETCH_MODE = UI.inputs.fetchMode.value;
         CONFIG.IMAGE_ONLY_MODE = UI.inputs.imgOnlyMode.checked;
+        CONFIG.EXACT_MATCH_FILTER = UI.inputs.exactMatch.checked;
         localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG));
 
         if (tweetLog.length > CONFIG.MAX_LOG_COUNT) {
@@ -805,6 +905,14 @@
             tweetLog = tweetLog.slice(0, CONFIG.MAX_LOG_COUNT);
             localStorage.setItem(LOG_KEY, JSON.stringify(tweetLog));
         }
+
+        // Re-apply or clear exact match filter on DOM
+        if (CONFIG.EXACT_MATCH_FILTER) {
+            applyExactMatchFilter();
+        } else {
+            document.querySelectorAll('article[data-xtl-exact-hidden]').forEach(a => a.removeAttribute('data-xtl-exact-hidden'));
+        }
+
         renderFullLog();
         UI.settingsPanel.style.display = 'none';
         UI.btnSettings.classList.remove('active');
@@ -817,7 +925,9 @@
             UI.inputs.truncate.value = CONFIG.TRUNCATE_TEXT;
             UI.inputs.fetchMode.value = CONFIG.FETCH_MODE;
             UI.inputs.imgOnlyMode.checked = CONFIG.IMAGE_ONLY_MODE;
-            document.getElementById('desc-fetch-mode').innerText = CONFIG.FETCH_MODE === 'timeline' ? 'タイムラインのみ取得' : '全て取得';
+            UI.inputs.exactMatch.checked = CONFIG.EXACT_MATCH_FILTER;
+            const fetchDesc = { timeline: 'タイムラインのみ取得', timeline_search: 'タイムライン＋検索結果を取得', all: '全ページを取得（検索含む）' };
+            document.getElementById('desc-fetch-mode').innerText = fetchDesc[CONFIG.FETCH_MODE] || 'タイムラインのみ取得';
             UI.settingsPanel.style.display = 'block';
             UI.btnSettings.classList.add('active');
             checkDirty();
@@ -884,15 +994,19 @@
         }
     };
 
-    [UI.inputs.maxCount, UI.inputs.debounce, UI.inputs.truncate, UI.inputs.imgOnlyMode].forEach(el => {
+    [UI.inputs.maxCount, UI.inputs.debounce, UI.inputs.truncate, UI.inputs.imgOnlyMode, UI.inputs.exactMatch].forEach(el => {
         el.oninput = checkDirty;
         el.onchange = checkDirty;
     });
 
     UI.inputs.fetchMode.onchange = () => {
-        document.getElementById('desc-fetch-mode').innerText = UI.inputs.fetchMode.value === 'timeline' ? 'タイムラインのみ取得' : '全て取得';
+        const fetchDesc = { timeline: 'タイムラインのみ取得', timeline_search: 'タイムライン＋検索結果を取得', all: '全ページを取得（検索含む）' };
+        document.getElementById('desc-fetch-mode').innerText = fetchDesc[UI.inputs.fetchMode.value] || '';
         checkDirty();
     };
+
+    UI.inputs.exactMatch.oninput = checkDirty;
+    UI.inputs.exactMatch.onchange = checkDirty;
 
     // Image Viewer Events
     UI.imageViewer.onclick = (e) => { if (e.target === UI.imageViewer || e.target.classList.contains('tv-img-container')) UI.imageViewer.style.display = 'none'; };
@@ -902,4 +1016,17 @@
 
     renderFullLog(); // Initial render
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // --- URL Change Detection for Exact Match Filter ---
+    // Hook pushState to detect X's SPA navigation
+    const _origPushState = history.pushState.bind(history);
+    history.pushState = function (...args) {
+        _origPushState(...args);
+        setTimeout(() => {
+            if (CONFIG.EXACT_MATCH_FILTER) applyExactMatchFilter();
+        }, 500); // brief delay for DOM to settle
+    };
+    window.addEventListener('popstate', () => {
+        if (CONFIG.EXACT_MATCH_FILTER) setTimeout(applyExactMatchFilter, 500);
+    });
 })();
