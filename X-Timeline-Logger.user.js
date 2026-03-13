@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Timeline Logger
 // @namespace    http://tampermonkey.net/
-// @version      2.1
+// @version      2.2
 // @updateURL    https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @downloadURL  https://github.com/sameashark/XTimelineLogger/raw/refs/heads/main/X-Timeline-Logger.user.js
 // @description  Never miss a tweet again. Real-time logging for your X timeline. With customizable settings.
@@ -14,6 +14,9 @@
 
 (function () {
     'use strict';
+
+    // Do not run inside iframes
+    if (window.self !== window.top) return;
 
     // --- Default Configuration & Storage ---
     const DEFAULTS = {
