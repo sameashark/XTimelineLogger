@@ -172,7 +172,7 @@
 
     const optimizeImageUrl = (url) => {
         if (!url) return '';
-        return url.includes('name=') ? url.replace(/name=[a-zA-Z0-9_]+/, 'name=thumb') : url;
+        return url.includes('name=') ? url.replace(/name=[a-zA-Z0-9_]+/, 'name=small') : url;
     };
 
     // --- UI Construction ---
